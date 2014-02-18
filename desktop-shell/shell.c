@@ -2060,24 +2060,27 @@ restore_all_output_modes(struct weston_compositor *compositor)
 		restore_output_mode(output);
 }
 
-static int
-get_output_panel_height(struct desktop_shell *shell,
-			struct weston_output *output)
+static void
+get_output_panel_size(struct desktop_shell *shell,
+		      struct weston_output *output,
+		      int *width,
+		      int *height)
 {
 	struct weston_view *view;
-	int panel_height = 0;
 
-	if (!output)
-		return 0;
-
-	wl_list_for_each(view, &shell->panel_layer.view_list, layer_link) {
-		if (view->surface->output == output) {
-			panel_height = view->surface->height;
-			break;
+	if (output) {
+		wl_list_for_each(view, &shell->panel_layer.view_list, layer_link) {
+			if (view->surface->output == output) {
+				*width = view->surface->width;
+				*height = view->surface->height;
+				return;
+			}
 		}
 	}
 
-	return panel_height;
+	/* output is NULL or the correct view wasn't found */
+	*width = 0;
+	*height = 0;
 }
 
 /* The surface will be inserted into the list immediately after the link
@@ -2400,17 +2403,30 @@ set_maximized(struct shell_surface *shsurf,
               struct weston_output *output)
 {
 	struct desktop_shell *shell;
-	uint32_t edges = 0, panel_height = 0;
+	uint32_t edges = 0;
+	int32_t panel_width, panel_height;
 
 	shell_surface_set_output(shsurf, output);
 
 	shell = shell_surface_get_shell(shsurf);
-	panel_height = get_output_panel_height(shell, shsurf->output);
+	get_output_panel_size(shell, shsurf->output, &panel_width, &panel_height);
 	edges = WL_SHELL_SURFACE_RESIZE_TOP | WL_SHELL_SURFACE_RESIZE_LEFT;
 
-	shsurf->client->send_configure(shsurf->surface, edges,
-	                               shsurf->output->width,
-	                               shsurf->output->height - panel_height);
+	switch (shell->panel_position) {
+	case DESKTOP_SHELL_PANEL_POSITION_TOP:
+	case DESKTOP_SHELL_PANEL_POSITION_BOTTOM:
+	default:
+		shsurf->client->send_configure(shsurf->surface, edges,
+					       shsurf->output->width,
+					       shsurf->output->height - panel_height);
+		break;
+	case DESKTOP_SHELL_PANEL_POSITION_LEFT:
+	case DESKTOP_SHELL_PANEL_POSITION_RIGHT:
+		shsurf->client->send_configure(shsurf->surface, edges,
+					       shsurf->output->width - panel_width,
+					       shsurf->output->height);
+		break;
+	}
 
 	shsurf->next_state.maximized = true;
 	shsurf->state_changed = true;
@@ -4663,8 +4679,8 @@ weston_view_set_initial_position(struct weston_view *view,
 {
 	struct weston_compositor *compositor = shell->compositor;
 	int ix = 0, iy = 0;
-	int range_x, range_y;
-	int dx, dy, x, y, panel_height;
+	int32_t range_x, range_y;
+	int32_t dx, dy, x, y, panel_width, panel_height;
 	struct weston_output *output, *target_output = NULL;
 	struct weston_seat *seat;
 
@@ -4698,20 +4714,45 @@ weston_view_set_initial_position(struct weston_view *view,
 	 * If this is negative it means that the surface is bigger than
 	 * output.
 	 */
-	panel_height = get_output_panel_height(shell, target_output);
-	range_x = target_output->width - view->surface->width;
-	range_y = (target_output->height - panel_height) -
-		  view->surface->height;
+	get_output_panel_size(shell, target_output, &panel_width, &panel_height);
+
+	switch (shell->panel_position) {
+	case DESKTOP_SHELL_PANEL_POSITION_TOP:
+	default:
+		range_x = target_output->width - view->surface->width;
+		range_y = (target_output->height - panel_height) -
+			view->surface->height;
+		dx = 0;
+		dy = panel_height;
+		break;
+	case DESKTOP_SHELL_PANEL_POSITION_BOTTOM:
+		range_x = target_output->width - view->surface->width;
+		range_y = (target_output->height - panel_height) -
+			view->surface->height;
+		dx = 0;
+		dy = (range_y >= panel_height) ? -panel_height : 0;
+		break;
+	case DESKTOP_SHELL_PANEL_POSITION_LEFT:
+		range_x = (target_output->width - panel_width) -
+			view->surface->width;
+		range_y = target_output->height - view->surface->height;
+		dx = panel_width;
+		dy = 0;
+		break;
+	case DESKTOP_SHELL_PANEL_POSITION_RIGHT:
+		range_x = (target_output->width - panel_width) -
+			view->surface->width;
+		range_y = target_output->height - view->surface->height;
+		dx = (range_x >= panel_width) ? -panel_width : 0;
+		dy = 0;
+		break;
+	}
 
 	if (range_x > 0)
-		dx = random() % range_x;
-	else
-		dx = 0;
+		dx += random() % range_x;
 
 	if (range_y > 0)
-		dy = panel_height + random() % range_y;
-	else
-		dy = panel_height;
+		dy += random() % range_y;
 
 	x = target_output->x + dx;
 	y = target_output->y + dy;
@@ -4720,13 +4761,47 @@ weston_view_set_initial_position(struct weston_view *view,
 }
 
 static void
+set_maximized_position(struct desktop_shell *shell,
+		       struct shell_surface *shsurf)
+{
+	int32_t surf_x, surf_y;
+	int32_t x, y;
+	int32_t panel_width, panel_height;
+
+	/* use surface configure to set the geometry */
+	get_output_panel_size(shell, shsurf->output, &panel_width, &panel_height);
+	surface_subsurfaces_boundingbox(shsurf->surface,
+					&surf_x, &surf_y, NULL, NULL);
+
+	switch (shell->panel_position) {
+	case DESKTOP_SHELL_PANEL_POSITION_TOP:
+	default:
+		x = shsurf->output->x - surf_x;
+		y = shsurf->output->y + panel_height - surf_y;
+		break;
+	case DESKTOP_SHELL_PANEL_POSITION_BOTTOM:
+		x = shsurf->output->x - surf_x;
+		y = shsurf->output->y - surf_y;
+		break;
+	case DESKTOP_SHELL_PANEL_POSITION_LEFT:
+		x = shsurf->output->x + panel_width - surf_x;
+		y = shsurf->output->y - surf_y;
+		break;
+	case DESKTOP_SHELL_PANEL_POSITION_RIGHT:
+		x = shsurf->output->x - surf_x;
+		y = shsurf->output->y - surf_y;
+		break;
+	}
+
+	weston_view_set_position(shsurf->view, x, y);
+}
+
+static void
 map(struct desktop_shell *shell, struct shell_surface *shsurf,
     int32_t sx, int32_t sy)
 {
 	struct weston_compositor *compositor = shell->compositor;
 	struct weston_seat *seat;
-	int panel_height = 0;
-	int32_t surf_x, surf_y;
 
 	/* initial positioning, see also configure() */
 	switch (shsurf->type) {
@@ -4735,14 +4810,7 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf,
 			center_on_output(shsurf->view, shsurf->fullscreen_output);
 			shell_map_fullscreen(shsurf);
 		} else if (shsurf->state.maximized) {
-			/* use surface configure to set the geometry */
-			panel_height = get_output_panel_height(shell, shsurf->output);
-			surface_subsurfaces_boundingbox(shsurf->surface,
-							&surf_x, &surf_y, NULL, NULL);
-			weston_view_set_position(shsurf->view,
-						 shsurf->output->x - surf_x,
-						 shsurf->output->y +
-						 panel_height - surf_y);
+			set_maximized_position(shell, shsurf);
 		} else if (!shsurf->state.relative) {
 			weston_view_set_initial_position(shsurf->view, shell);
 		}
@@ -4815,7 +4883,6 @@ configure(struct desktop_shell *shell, struct weston_surface *surface,
 {
 	struct shell_surface *shsurf;
 	struct weston_view *view;
-	int32_t mx, my, surf_x, surf_y;
 
 	shsurf = get_shell_surface(surface);
 
@@ -4824,13 +4891,7 @@ configure(struct desktop_shell *shell, struct weston_surface *surface,
 	if (shsurf->state.fullscreen)
 		shell_configure_fullscreen(shsurf);
 	else if (shsurf->state.maximized) {
-		/* setting x, y and using configure to change that geometry */
-		surface_subsurfaces_boundingbox(shsurf->surface, &surf_x, &surf_y,
-		                                                 NULL, NULL);
-		mx = shsurf->output->x - surf_x;
-		my = shsurf->output->y +
-		     get_output_panel_height(shell,shsurf->output) - surf_y;
-		weston_view_set_position(shsurf->view, mx, my);
+		set_maximized_position(shell, shsurf);
 	} else {
 		weston_view_set_position(shsurf->view, x, y);
 	}
