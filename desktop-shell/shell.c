@@ -3660,7 +3660,11 @@ configure_static_view(struct weston_view *ev, struct weston_layer *layer)
 		}
 	}
 
-	weston_view_set_position(ev, ev->output->x, ev->output->y);
+	/* TODO: every time this this is called, the panel is moved
+	 * back to (0,0) which we don't want. either this should be
+	 * fixed somehow in weston or we add more private API to
+	 * shell-helper to change the surface configure function. */
+	/*weston_view_set_position(ev, ev->output->x, ev->output->y);*/
 
 	if (wl_list_empty(&ev->layer_link)) {
 		wl_list_insert(&layer->view_list, &ev->layer_link);
