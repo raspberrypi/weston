@@ -3854,13 +3854,34 @@ desktop_shell_desktop_ready(struct wl_client *client,
 	shell_fade_startup(shell);
 }
 
+static void
+desktop_shell_set_panel_position(struct wl_client *client,
+				 struct wl_resource *resource,
+				 uint32_t position)
+{
+	struct desktop_shell *shell = wl_resource_get_user_data(resource);
+
+	if (position != DESKTOP_SHELL_PANEL_POSITION_TOP &&
+	    position != DESKTOP_SHELL_PANEL_POSITION_BOTTOM &&
+	    position != DESKTOP_SHELL_PANEL_POSITION_LEFT &&
+	    position != DESKTOP_SHELL_PANEL_POSITION_RIGHT) {
+		wl_resource_post_error(resource,
+				       WL_DISPLAY_ERROR_INVALID_OBJECT,
+				       "bad position argument");
+		return;
+	}
+
+	shell->panel_position = position;
+}
+
 static const struct desktop_shell_interface desktop_shell_implementation = {
 	desktop_shell_set_background,
 	desktop_shell_set_panel,
 	desktop_shell_set_lock_surface,
 	desktop_shell_unlock,
 	desktop_shell_set_grab_surface,
-	desktop_shell_desktop_ready
+	desktop_shell_desktop_ready,
+	desktop_shell_set_panel_position
 };
 
 static enum shell_surface_type
@@ -4982,7 +5003,7 @@ bind_desktop_shell(struct wl_client *client,
 	struct wl_resource *resource;
 
 	resource = wl_resource_create(client, &desktop_shell_interface,
-				      MIN(version, 2), id);
+				      MIN(version, 3), id);
 
 	if (client == shell->child.client) {
 		wl_resource_set_implementation(resource,
@@ -5853,7 +5874,7 @@ module_init(struct weston_compositor *ec,
 		return -1;
 
 	if (wl_global_create(ec->wl_display,
-			     &desktop_shell_interface, 2,
+			     &desktop_shell_interface, 3,
 			     shell, bind_desktop_shell) == NULL)
 		return -1;
 
@@ -5866,6 +5887,8 @@ module_init(struct weston_compositor *ec,
 		return -1;
 
 	shell->child.deathstamp = weston_compositor_get_time();
+
+	shell->panel_position = DESKTOP_SHELL_PANEL_POSITION_TOP;
 
 	setup_output_destroy_handler(ec, shell);
 
