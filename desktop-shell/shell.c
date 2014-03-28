@@ -3678,14 +3678,16 @@ terminate_screensaver(struct desktop_shell *shell)
 static void
 configure_static_view(struct weston_view *ev, struct weston_layer *layer)
 {
-	struct weston_view *v, *next;
+	/*struct weston_view *v, *next;*/
 
-	wl_list_for_each_safe(v, next, &layer->view_list, layer_link) {
+	/* TODO: we don't want to empty the layer of all other views
+	 * in case we want to add other views to the layer. */
+	/*wl_list_for_each_safe(v, next, &layer->view_list, layer_link) {
 		if (v->output == ev->output && v != ev) {
 			weston_view_unmap(v);
 			v->surface->configure = NULL;
 		}
-	}
+	}*/
 
 	/* TODO: every time this this is called, the panel is moved
 	 * back to (0,0) which we don't want. either this should be
