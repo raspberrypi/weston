@@ -2071,9 +2071,36 @@ get_output_panel_size(struct desktop_shell *shell,
 	if (output) {
 		wl_list_for_each(view, &shell->panel_layer.view_list, layer_link) {
 			if (view->surface->output == output) {
-				*width = view->surface->width;
-				*height = view->surface->height;
-				return;
+				float x, y;
+
+				if (shell->panel_position
+				    == DESKTOP_SHELL_PANEL_POSITION_TOP
+				    || shell->panel_position
+				    == DESKTOP_SHELL_PANEL_POSITION_BOTTOM) {
+
+					weston_view_to_global_float(view,
+								    view->surface->width, 0,
+								    &x, &y);
+
+					*width = (int) x;
+					*height = view->surface->height + (int) y;
+
+					return;
+
+				} else if (shell->panel_position
+					   == DESKTOP_SHELL_PANEL_POSITION_LEFT
+					   || shell->panel_position
+					   == DESKTOP_SHELL_PANEL_POSITION_RIGHT) {
+
+					weston_view_to_global_float(view,
+								    0, view->surface->height,
+								    &x, &y);
+
+					*width = view->surface->width + (int) x;
+					*height = (int) y;
+
+					return;
+				}
 			}
 		}
 	}
