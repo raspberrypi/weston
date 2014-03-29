@@ -178,6 +178,8 @@ weston_view_animation_frame(struct weston_animation *base,
 
 	weston_view_geometry_dirty(animation->view);
 	weston_view_schedule_repaint(animation->view);
+
+	weston_compositor_schedule_repaint(animation->view->surface->compositor);
 }
 
 static struct weston_view_animation *
