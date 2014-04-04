@@ -622,9 +622,9 @@ focus_state_surface_destroy(struct wl_listener *listener, void *data)
 			if (state->ws->focus_animation)
 				weston_view_animation_destroy(state->ws->focus_animation);
 
-			state->ws->focus_animation = weston_fade_run(
-				state->ws->fsurf_front->view,
-				state->ws->fsurf_front->view->alpha, 0.0, 300,
+			state->ws->focus_animation = weston_stable_fade_run(
+				state->ws->fsurf_back->view, state->ws->fsurf_front->view->alpha,
+				state->ws->fsurf_front->view, 0.0,
 				focus_animation_done, state->ws);
 		}
 
